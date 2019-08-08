@@ -1,0 +1,404 @@
+.gitignore
+/vendor
+/test/*/notify_result.txt
+/test/*/php_errors.log
+/test/Weixin/cert
+/test/*/paymode1_notify_result.txt
+
+
+src/Alipay/SDK.php
+ @@ -2,6 +2,7 @@
+namespace Yurun\PaySDK\Alipay;
+use \Yurun\PaySDK\Base;
+use \Yurun\PaySDK\Lib\ObjectToArray;
+class SDK extends Base
+{
+ @@ -14,13 +15,14 @@ class SDK extends Base
+	/**
+	 * 处理执行接口的数据
+	 * @param $params
+	 * @param &$data
+	 * @param &$url
+	 * @param &$data 数据数组
+	 * @param &$requestData 请求用的数据，格式化后的
+	 * @param &$url 请求地址
+	 * @return array
+	 */
+	public function __parseExecuteData($params, &$data, &$url)
+	public function __parseExecuteData($params, &$data, &$requestData, &$url)
+	{
+		$data = \array_merge((array)$this->publicParams, (array)$params, (array)$params->businessParams);
+		$data = \array_merge(ObjectToArray::parse($this->publicParams), ObjectToArray::parse($params), ObjectToArray::parse($params->businessParams));
+		unset($data['apiDomain'], $data['appID'], $data['businessParams'], $data['appPrivateKey'], $data['appPrivateKeyFile'], $data['md5Key'], $data['appPublicKey'], $data['appPublicKeyFile'], $data['_syncResponseName'], $data['_method'], $data['_isSyncVerify']);
+		$data['partner'] = $this->publicParams->appID;
+		foreach($data as $key => $value)
+ @@ -31,6 +33,7 @@ public function __parseExecuteData($params, &$data, &$url)
+			}
+		}
+		$data['sign'] = $this->sign($data);
+		$requestData = $data;
+		$url = $this->publicParams->apiDomain;
+	}
+ @@ -115,8 +118,8 @@ public function parseSignData($data)
+		\ksort($data);
+		$content = '';
+		foreach ($data as $k => $v){
+			if($v != "" && !is_array($v)){
+				$content .= $k . "=" . $v . "&";
+			if($v != '' && !is_array($v)){
+				$content .= $k . '=' . $v . '&';
+			}
+		}
+		return trim($content, '&');
+    
+    
+    
+    
+    
+src/AlipayApp/SDK.php 
+ @@ -3,6 +3,7 @@
+use \Yurun\PaySDK\Base;
+use \Yurun\PaySDK\Lib\Encrypt\AES;
+use \Yurun\PaySDK\Lib\ObjectToArray;
+class SDK extends Base
+{
+ @@ -15,13 +16,14 @@ class SDK extends Base
+	/**
+	 * 处理执行接口的数据
+	 * @param $params
+	 * @param &$data
+	 * @param &$url
+	 * @param &$data 数据数组
+	 * @param &$requestData 请求用的数据，格式化后的
+	 * @param &$url 请求地址
+	 * @return array
+	 */
+	public function __parseExecuteData($params, &$data, &$url)
+	public function __parseExecuteData($params, &$data, &$requestData, &$url)
+	{
+		$data = \array_merge((array)$this->publicParams, (array)$params);
+		$data = \array_merge(ObjectToArray::parse($this->publicParams), ObjectToArray::parse($params));
+		unset($data['apiDomain'], $data['appID'], $data['businessParams'], $data['appPrivateKey'], $data['appPrivateKeyFile'], $data['appPublicKey'], $data['appPublicKeyFile'], $data['_syncResponseName'], $data['_method'], $data['_isSyncVerify'], $data['aesKey'], $data['isUseAES']);
+		$data['app_id'] = $this->publicParams->appID;
+		$data['biz_content'] = $params->businessParams->toString();
+ @@ -31,6 +33,7 @@ public function __parseExecuteData($params, &$data, &$url)
+		}
+		$data['timestamp'] = date('Y-m-d H:i:s');
+		$data['sign'] = $this->sign($data);
+		$requestData = $data;
+		$url = $this->publicParams->apiDomain;
+	}
+ @@ -140,8 +143,8 @@ public function parseSignData($data)
+		\ksort($data);
+		$content = '';
+		foreach ($data as $k => $v){
+			if($v != "" && !is_array($v)){
+				$content .= $k . "=" . $v . "&";
+			if($v != '' && !is_array($v)){
+				$content .= $k . '=' . $v . '&';
+			}
+		}
+		return trim($content, '&');
+    
+    
+    
+    
+    
+    
+    
+    
+    
+src/Base.php 
+ @@ -44,22 +44,8 @@ public function __construct($publicParams)
+	 */
+	public function execute($params, $format = 'JSON')
+	{
+		$this->__parseExecuteData($params, $data, $url);
+		$this->requestData = $data;
+		$method = $params->_method;
+		if('GET' === $method)
+		{
+			if(false === strpos($url, '?'))
+			{
+				$url .= '?';
+			}
+			else
+			{
+				$url .= '&';
+			}
+			$url .= \http_build_query($data);
+		}
+		$this->response = $this->http->send($url, $data, $method);
+		$this->prepareExecute($params, $url, $data);
+		$this->response = $this->http->send($url, $this->requestData, $params->_method);
+		switch($format)
+		{
+			case 'JSON':
+ @@ -91,11 +77,12 @@ public function execute($params, $format = 'JSON')
+	/**
+	 * 处理执行接口的数据
+	 * @param $params
+	 * @param &$data
+	 * @param &$url
+	 * @param &$data 数据数组
+	 * @param &$requestData 请求用的数据，格式化后的
+	 * @param &$url 请求地址
+	 * @return array
+	 */
+	public abstract function __parseExecuteData($params, &$data, &$url);
+	public abstract function __parseExecuteData($params, &$data, &$requestData, &$url);
+	/**
+	 * 验证回调通知是否合法
+ @@ -119,7 +106,7 @@ public function execute($params, $format = 'JSON')
+	 */
+	public function redirectExecute($params)
+	{
+		$this->__parseExecuteData($params, $data, $url);
+		$this->__parseExecuteData($params, $data, $requestData, $url);
+		if(false === strpos($url, '?'))
+		{
+			$url .= '?';
+ @@ -134,4 +121,41 @@ public function redirectExecute($params)
+		header('Status: 302 Temporarily Moved');
+		header('Location: ' . $url);
+	}
+	/**
+	 * 准备处理数据
+	 * @param string $params
+	 * @param string $url
+	 * @param array $data
+	 * @return void
+	 */
+	public function prepareExecute($params, &$url = null, &$data = null)
+	{
+		$this->__parseExecuteData($params, $data, $requestData, $url);
+		$this->requestData = $requestData;
+		if('GET' === $params->_method)
+		{
+			if(false === strpos($url, '?'))
+			{
+				$url .= '?';
+			}
+			else
+			{
+				$url .= '&';
+			}
+			$url .= \http_build_query($data);
+		}
+	}
+	/**
+	 * Undocumented function
+	 *
+	 * @param [type] $notifyHandle
+	 * @return void
+	 */
+	public function notify($notifyHandle)
+	{
+		$notifyHandle->sdk = $this;
+		$notifyHandle->exec();
+	}
+} 
+
+
+
+
+
+
+
+ src/Lib/ObjectToArray.php 
+@@ -0,0 +1,15 @@
+<?php
+namespace Yurun\PaySDK\Lib;
+class ObjectToArray
+{
+	/**
+	 * 对象转数组，不会出现非public属性
+	 * @param object $object
+	 * @return array
+	 */
+	public static function parse($object)
+	{
+		return get_object_vars($object);
+	}
+} 
+
+
+
+
+
+src/Lib/XML.php 
+ @@ -11,7 +11,15 @@ public static function fromString($string)
+	public static function toString($data)
+	{
+		$result = '<xml>';
+		foreach((array)$data as $key => $value)
+		if(is_object($data))
+		{
+			$_data = ObjectToArray::parse($data);
+		}
+		else
+		{
+			$_data = &$data;
+		}
+		foreach($_data as $key => $value)
+		{
+			if(!\is_scalar($value))
+			{
+      
+      
+      
+      
+      
+src/NotifyBase.php 
+@@ -0,0 +1,86 @@
+<?php
+namespace Yurun\PaySDK;
+use \Yurun\PaySDK\Lib\ObjectToArray;
+abstract class NotifyBase
+{
+	public $data;
+	/**
+	 * SDK实例化
+	 * @var Yurun\PaySDK\Base
+	 */
+	public $sdk;
+	/**
+	 * 返回数据
+	 * @var \Yurun\PaySDK\Weixin\Reply\Base
+	 */
+	public $replyData;
+	/**
+	 * 返回数据是否需要签名
+	 * @var boolean
+	 */
+	public $needSign = true;
+	public function __construct()
+	{
+		
+	}
+	/**
+	 * 执行
+	 * @return void
+	 */
+	public function exec()
+	{
+		$this->data = $this->getNotifyData();
+		if(!$this->checkSign())
+		{
+			$this->reply('FAIL', '签名失败');
+			throw new \Exception('签名验证失败');
+		}
+		$this->__exec();
+	}
+	/**
+	 * 返回数据
+	 * @return void
+	 */
+	public function reply($code = null, $msg = null)
+	{
+		if(null !== $code)
+		{
+			$this->replyData->return_code = $code;
+		}
+		if(null !== $msg)
+		{
+			$this->replyData->return_msg = $msg;
+		}
+		if($this->needSign)
+		{
+			$this->replyData->sign = $this->sdk->sign(ObjectToArray::parse($this->replyData));
+		}
+		echo $this->replyData;
+	}
+	/**
+	 * 获取通知数据
+	 * @return void
+	 */
+	public abstract function getNotifyData();
+	/**
+	 * 验证签名
+	 * @return bool
+	 */
+	public abstract function checkSign();
+	/**
+	 * 后续执行操作
+	 * @return void
+	 */
+	protected abstract function __exec();
+} 
+
+
+
+
+
+
+
+
+src/Weixin/JSAPI/Params/Request.php 
+@@ -0,0 +1,21 @@
+<?php
+namespace Yurun\PaySDK\Weixin\JSAPI\Params;
+use \Yurun\PaySDK\Weixin\Params\PayRequestBase;
+use \Yurun\PaySDK\Weixin\JSAPI\Params\SceneInfo;
+class Request extends PayRequestBase
+{
+	/**
+	 * 场景信息
+	 * @var \Yurun\PaySDK\Weixin\JSAPI\Params\SceneInfo
+	 */
+	public $scene_info;
+	public function __construct()
+	{
+		$this->trade_type = 'JSAPI';
+		$this->scene_info = new SceneInfo;
+		parent::__construct();
+	}
+} 
+
+
+
+
+
+
+
+src/Weixin/JSAPI/Params/SceneInfo.php 
+@@ -0,0 +1,46 @@
+<?php
+namespace Yurun\PaySDK\Weixin\JSAPI\Params;
+use \Yurun\PaySDK\Weixin\Params\PayRequestBase;
+use Yurun\PaySDK\Traits\JSONParams;
+class SceneInfo
+{
+	use JSONParams;
+	/**
+	 * 门店唯一标识
+	 * @var string
+	 */
+	public $id;
+	/**
+	 * 门店名称
+	 * @var string
+	 */
+	public $name;
+	/**
+	 * 门店所在地行政区划码，详细见https://pay.weixin.qq.com/wiki/doc/api/download/store_adress.csv
+	 * @var string
+	 */
+	public $area_code;
+	/**
+	 * 门店详细地址
+	 * @var string
+	 */
+	public $address;
+	public function toString()
+	{
+		if(null === $this->id && null === $this->name && null === $this->area_code && null === $this->address)
+		{
+			return null;
+		}
+		else
+		{
+			return parent::toString();
+		}
+	}
+} 
